@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>রিমোট স্ক্রিন শেয়ার (PeerJS)</title>
+    <style>
+        body { font-family: Arial; text-align: center; padding: 20px; background: #f0f0f0; }
+        video { width: 100%; max-width: 400px; border: 1px solid #ccc; margin: 10px; }
+        button { padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer; margin: 5px; }
+        button:hover { background: #45a049; }
+        button:disabled { background: #ccc; }
+        #status, #peerId { color: blue; margin: 10px; font-weight: bold; }
+        input { padding: 10px; width: 200px; margin: 5px; }
+    </style>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <h1>রিমোট স্ক্রিন + মাইক শেয়ার (ইন্টারনেটে কাজ করে)</h1>
+    <p>তোমার Peer ID: <span id="peerId"></span></p>
+    <p>অন্যের ID ইনপুট করো এবং Connect করো। তারপর Share Screen ক্লিক করো।</p>
+    
+    <div>
+        <input type="text" id="remoteId" placeholder="অন্যের Peer ID দাও">
+        <button id="connectBtn">Connect</button>
+        <button id="shareBtn" disabled>Start Screen Share</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+    
+    <div id="status"></div>
+    <video id="localVideo" autoplay muted></video>
+    <video id="remoteVideo" autoplay></video>
+
+    <script>
+        let peer;
+        let localStream;
+        let currentCall;
+        const statusEl = document.getElementById('status');
+        const peerIdEl = document.getElementById('peerId');
+        const connectBtn = document.getElementById('connectBtn');
+        const shareBtn = document.getElementById('shareBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const remoteIdEl = document.getElementById('remoteId');
+
+        // PeerJS সেটআপ (ক্লাউড সার্ভার ব্যবহার করে ইন্টারনেটে কাজ)
+        peer = new Peer({
+            config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+        });
+
+        peer.on('open', (id) => {
+            peerIdEl.textContent = id;
+            statusEl.textContent = 'তোমার ID রেডি! অন্যকে শেয়ার করো।';
+        });
+
+        peer.on('error', (err) => {
+            statusEl.textContent = 'এরর: ' + err.type;
+        });
+
+        connectBtn.onclick = () => {
+            const remoteId = remoteIdEl.value.trim();
+            if (!remoteId) return alert('ID দাও!');
+            statusEl.textContent = 'কানেক্ট হচ্ছে...';
+        };
+
+        disconnectBtn.onclick = () => {
+            if (currentCall) currentCall.close();
+            stopLocalStream();
+            shareBtn.disabled = true;
+            disconnectBtn.disabled = true;
+            statusEl.textContent = 'Disconnected';
+        };
+
+        shareBtn.onclick = async () => {
+            try {
+                // স্ক্রিন + মাইক ক্যাপচার
+                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                localStream = new MediaStream([...screenStream.getVideoTracks(), audioStream.getAudioTracks()]);
+
+                document.getElementById('localVideo').srcObject = localStream;
+                statusEl.textContent = 'শেয়ারিং শুরু!';
+
+                // কল করো রিমোট পিয়ারে
+                currentCall = peer.call(remoteIdEl.value, localStream);
+                handleCall(currentCall);
+
+            } catch (err) {
+                statusEl.textContent = 'পারমিশন এরর: ' + err.message;
+            }
+        };
+
+        // ইনকামিং কল হ্যান্ডেল (ভিউয়ার সাইড)
+        peer.on('call', (call) => {
+            currentCall = call;
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(audioStream => {
+                call.answer(audioStream);  // অটো অ্যানসার অডিও সহ
+            });
+            handleCall(call);
+            shareBtn.disabled = false;
+        });
+
+        function handleCall(call) {
+            call.
+			on('stream', (remoteStream) => {
+                document.getElementById('remoteVideo').srcObject = remoteStream;
+                statusEl.textContent = 'স্ট্রিম রিসিভ হয়েছে! স্ক্রিন + অডিও দেখো।';
+            });
+
+            call.on('close', () => {
+                stopLocalStream();
+                statusEl.textContent = 'কানেকশন ক্লোজ';
+                shareBtn.disabled = true;
+                disconnectBtn.disabled = true;
+            });
+
+            disconnectBtn.disabled = false;
+        }
+
+        function stopLocalStream() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                document.getElementById('localVideo').srcObject = null;
+            }
+        }
+    </script>
+</body>
+</html>
